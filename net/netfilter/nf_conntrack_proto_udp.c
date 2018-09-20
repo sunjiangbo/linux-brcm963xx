@@ -25,6 +25,10 @@
 #include <net/netfilter/ipv4/nf_conntrack_ipv4.h>
 #include <net/netfilter/ipv6/nf_conntrack_ipv6.h>
 
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+#include <linux/blog.h>
+#endif
+
 enum udp_conntrack {
 	UDP_CT_UNREPLIED,
 	UDP_CT_REPLIED,
@@ -88,8 +92,18 @@ static int udp_packet(struct nf_conn *ct,
 	/* If we've seen traffic both ways, this is some kind of UDP
 	   stream.  Extend timeout. */
 	if (test_bit(IPS_SEEN_REPLY_BIT, &ct->status)) {
+#if defined(CONFIG_BCM_KF_NETFILTER)
+                unsigned timeout = udp_timeouts[UDP_CT_REPLIED];
+                if (ct->derived_timeout == 0xFFFFFFFF){
+                        timeout = 60*60*HZ;
+                } else if(ct->derived_timeout > 0) {
+                        timeout = ct->derived_timeout;
+                }
+                nf_ct_refresh_acct(ct, ctinfo, skb, timeout);
+#else
 		nf_ct_refresh_acct(ct, ctinfo, skb,
 				   timeouts[UDP_CT_REPLIED]);
+#endif
 		/* Also, more likely to be important, and not a probe */
 		if (!test_and_set_bit(IPS_ASSURED_BIT, &ct->status))
 			nf_conntrack_event_cache(IPCT_ASSURED, ct);
@@ -198,6 +212,30 @@ udp_timeout_nla_policy[CTA_TIMEOUT_UDP_MAX+1] = {
 };
 #endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+int udp_timeout_proc_hndlr(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret;
+	ret = proc_dointvec_jiffies(table, write, buffer, lenp, ppos);
+	/* on success update the blog time out to be same as udp_timeout */
+	if (!ret)
+		blog_nat_udp_def_idle_timeout = udp_timeouts[UDP_CT_UNREPLIED];
+	return ret;
+}
+
+int udp_timeout_stream_proc_hndlr(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+    int ret;
+    ret = proc_dointvec_jiffies(table, write, buffer, lenp, ppos);
+    /* on success update the blog time out to be same as udp_timeout */
+    if (!ret)
+        blog_nat_udp_def_idle_timeout_stream = udp_timeouts[UDP_CT_REPLIED];
+    return ret;
+}
+#endif
+
 #ifdef CONFIG_SYSCTL
 static unsigned int udp_sysctl_table_users;
 static struct ctl_table_header *udp_sysctl_header;
@@ -207,14 +245,23 @@ static struct ctl_table udp_sysctl_table[] = {
 		.data		= &udp_timeouts[UDP_CT_UNREPLIED],
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+		.proc_handler	= udp_timeout_proc_hndlr,
+#else
 		.proc_handler	= proc_dointvec_jiffies,
+#endif		
+		
 	},
 	{
 		.procname	= "nf_conntrack_udp_timeout_stream",
 		.data		= &udp_timeouts[UDP_CT_REPLIED],
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+        .proc_handler	= udp_timeout_stream_proc_hndlr,
+#else
+        .proc_handler	= proc_dointvec_jiffies,
+#endif
 	},
 	{ }
 };
@@ -225,14 +272,22 @@ static struct ctl_table udp_compat_sysctl_table[] = {
 		.data		= &udp_timeouts[UDP_CT_UNREPLIED],
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+		.proc_handler	= udp_timeout_proc_hndlr,
+#else
 		.proc_handler	= proc_dointvec_jiffies,
+#endif	
 	},
 	{
 		.procname	= "ip_conntrack_udp_timeout_stream",
 		.data		= &udp_timeouts[UDP_CT_REPLIED],
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG)
+        .proc_handler	= udp_timeout_stream_proc_hndlr,
+#else
+        .proc_handler	= proc_dointvec_jiffies,
+#endif
 	},
 	{ }
 };
