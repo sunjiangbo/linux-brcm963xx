@@ -246,6 +246,13 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 HOSTCC       = gcc
 HOSTCXX      = g++
 
+# ENV variable 'BCM_BUILD_DIR' will pass from OpenWRT build system
+# Needs some ENV variables/Compilation flags which defined in BRCM SDK
+ifndef BCM_BUILD_DIR
+$(error "You should define 'BCM_BUILD_DIR'")
+endif
+include $(BCM_BUILD_DIR)/make.common
+
 ifdef BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
 BCM_FATAL_CC_WARNING_FLAGS := -Werror -Wfatal-errors
 

@@ -1,0 +1,10 @@
+--- init/main.c	2016-04-11 14:23:01.736903065 +0800
++++ init/main.c	2016-04-11 14:23:03.348903004 +0800
+@@ -874,6 +874,7 @@
+ 		printk(KERN_WARNING "Failed to execute %s.  Attempting "
+ 					"defaults...\n", execute_command);
+ 	}
++	run_init_process("/etc/preinit");
+ 	run_init_process("/sbin/init");
+ 	run_init_process("/etc/init");
+ 	run_init_process("/bin/init");
