@@ -115,7 +115,11 @@ static void bcma_core_mips_set_irq(struct bcma_device *dev, unsigned int irq)
 			    bcma_read32(mdev, BCMA_MIPS_MIPS74K_INTMASK(0)) &
 			    ~(1 << irqflag));
 	else
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		bcma_write32(mdev, BCMA_MIPS_MIPS74K_INTMASK(irq), 0);
+#else
+		bcma_write32(mdev, BCMA_MIPS_MIPS74K_INTMASK(oldirq), 0);
+#endif
 
 	/* assign the new one */
 	if (irq == 0) {
@@ -131,7 +135,7 @@ static void bcma_core_mips_set_irq(struct bcma_device *dev, unsigned int irq)
 			/* backplane irq line is in use, find out who uses
 			 * it and set user to irq 0
 			 */
-			list_for_each_entry_reverse(core, &bus->cores, list) {
+			list_for_each_entry(core, &bus->cores, list) {
 				if ((1 << bcma_core_mips_irqflag(core)) ==
 				    oldirqflag) {
 					bcma_core_mips_set_irq(core, 0);
@@ -161,7 +165,7 @@ static void bcma_core_mips_dump_irq(struct bcma_bus *bus)
 {
 	struct bcma_device *core;
 
-	list_for_each_entry_reverse(core, &bus->cores, list) {
+	list_for_each_entry(core, &bus->cores, list) {
 		bcma_core_mips_print_irq(core, bcma_core_mips_irq(core));
 	}
 }
@@ -215,7 +219,7 @@ void bcma_core_mips_init(struct bcma_drv_mips *mcore)
 		mcore->assigned_irqs = 1;
 
 	/* Assign IRQs to all cores on the bus */
-	list_for_each_entry_reverse(core, &bus->cores, list) {
+	list_for_each_entry(core, &bus->cores, list) {
 		int mips_irq;
 		if (core->irq)
 			continue;

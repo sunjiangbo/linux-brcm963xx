@@ -143,7 +143,7 @@ static void __exit_signal(struct task_struct *tsk)
 	 * Do this under ->siglock, we can race with another thread
 	 * doing sigqueue_free() if we have SIGQUEUE_PREALLOC signals.
 	 */
-	flush_sigqueue(&tsk->pending);
+	flush_task_sigqueue(tsk);
 	tsk->sighand = NULL;
 	spin_unlock(&sighand->siglock);
 
@@ -501,6 +501,7 @@ struct files_struct *get_files_struct(struct task_struct *task)
 
 	return files;
 }
+EXPORT_SYMBOL_GPL(get_files_struct);
 
 void put_files_struct(struct files_struct *files)
 {
@@ -522,6 +523,7 @@ void put_files_struct(struct files_struct *files)
 		rcu_read_unlock();
 	}
 }
+EXPORT_SYMBOL_GPL(put_files_struct);
 
 void reset_files_struct(struct files_struct *files)
 {
@@ -1027,7 +1029,11 @@ void do_exit(long code)
 	/*
 	 * Make sure we are holding no locks:
 	 */
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	debug_check_no_locks_held(tsk);
+#else
+	debug_check_no_locks_held();
+#endif
 	/*
 	 * We can do this unlocked here. The futex code uses this flag
 	 * just to verify whether the pi state cleanup has been done

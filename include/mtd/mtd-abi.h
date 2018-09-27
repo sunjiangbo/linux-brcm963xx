@@ -134,9 +134,9 @@ struct mtd_info_user {
 
 struct region_info_user {
 	__u32 offset;		/* At which this region starts,
-				 * from the beginning of the MTD */
-	__u32 erasesize;	/* For this region */
-	__u32 numblocks;	/* Number of blocks in this region */
+					 * from the beginning of the MTD */
+	__u32 erasesize;		/* For this region */
+	__u32 numblocks;		/* Number of blocks in this region */
 	__u32 regionindex;
 };
 
@@ -202,6 +202,7 @@ struct otp_info {
  * without OOB, e.g., NOR flash.
  */
 #define MEMWRITE		_IOWR('M', 24, struct mtd_write_req)
+#define MTDREFRESH		_IO('M', 50)
 
 /*
  * Obsolete legacy interface. Keep it in order not to break userspace
@@ -220,7 +221,7 @@ struct nand_oobfree {
 };
 
 #define MTD_MAX_OOBFREE_ENTRIES	8
-#define MTD_MAX_ECCPOS_ENTRIES	64
+#define MTD_MAX_ECCPOS_ENTRIES	64	
 /*
  * OBSOLETE: ECC layout control structure. Exported to user-space via ioctl
  * ECCGETLAYOUT for backwards compatbility and should not be mistaken as a

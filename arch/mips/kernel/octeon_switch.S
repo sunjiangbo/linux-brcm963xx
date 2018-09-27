@@ -31,7 +31,7 @@
 
 /*
  * task_struct *resume(task_struct *prev, task_struct *next,
- *                     struct thread_info *next_ti, int usedfpu)
+ *                     struct thread_info *next_ti)
  */
 	.align	7
 	LEAF(resume)

@@ -1,0 +1,12 @@
+--- fs/fuse/dev.c	2012-09-15 06:18:55.000000000 +0800
++++ fs/fuse/dev.c	2016-02-22 00:57:31.000000000 +0800
+@@ -19,6 +19,9 @@
+ #include <linux/pipe_fs_i.h>
+ #include <linux/swap.h>
+ #include <linux/splice.h>
++#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
++#include <linux/freezer.h>
++#endif
+ 
+ MODULE_ALIAS_MISCDEV(FUSE_MINOR);
+ MODULE_ALIAS("devname:fuse");

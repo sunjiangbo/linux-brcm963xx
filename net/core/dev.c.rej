@@ -1,0 +1,48 @@
+--- net/core/dev.c	2012-09-15 06:18:55.000000000 +0800
++++ net/core/dev.c	2016-02-22 01:04:03.000000000 +0800
+@@ -2549,7 +2886,44 @@
+ 		}
+ 
+ 		skb_len = skb->len;
+-		rc = ops->ndo_start_xmit(skb, dev);
++
++#if (defined(CONFIG_BCM_KF_FAP_GSO_LOOPBACK) && defined(CONFIG_BCM_FAP_GSO_LOOPBACK))
++        {
++            unsigned int devId = bcm_is_gso_loopback_dev(dev);
++
++            if(devId && bcm_gso_loopback_hw_offload)
++            { 
++                if(skb_shinfo(skb)->nr_frags || skb_is_gso(skb) || (skb->ip_summed == CHECKSUM_PARTIAL))
++                {
++                    rc = bcm_gso_loopback_hw_offload(skb, devId); 
++                }
++                else if(!skb->recycle_hook) 
++                {
++                 /*  To avoid any outof order packets, send all the locally generated packets through
++                  *  gso loop back 
++                  */
++
++                    /* TODO: we are classifying the traffic as local based on recycle hook.
++                     * But cloned forwarding tarffic can also have recyle_hook as NULL, so this traffic
++                     * will make an extra trip through FAP unnecessarily. But we dont expecet alot
++                     * of traffic in this case. so this shoud be okay for now. Later add a flag
++                     * in skb and mark the skb as local in local_out hook.
++                     */  
++                        rc = bcm_gso_loopback_hw_offload(skb, devId); 
++                }
++                else
++                {
++                    rc = ops->ndo_start_xmit(skb, dev);
++                }
++            }
++            else
++            {
++                rc = ops->ndo_start_xmit(skb, dev);
++            }
++        }
++#else
++        rc = ops->ndo_start_xmit(skb, dev);
++#endif
+ 		trace_net_dev_xmit(skb, rc, dev, skb_len);
+ 		if (rc == NETDEV_TX_OK)
+ 			txq_trans_update(txq);

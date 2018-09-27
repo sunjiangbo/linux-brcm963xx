@@ -58,7 +58,11 @@
 #define __mips 4
 
 /* Function which emulates a floating point instruction. */
+#ifdef CONFIG_DEBUG_FS
+DEFINE_PER_CPU(struct mips_fpu_emulator_stats, fpuemustats);
+#endif
 
+#ifdef CONFIG_MIPS_FPU_EMU
 static int fpu_emu(struct pt_regs *, struct mips_fpu_struct *,
 	mips_instruction);
 
@@ -68,10 +72,6 @@ static int fpux_emu(struct pt_regs *,
 #endif
 
 /* Further private data for which no space exists in mips_fpu_struct */
-
-#ifdef CONFIG_DEBUG_FS
-DEFINE_PER_CPU(struct mips_fpu_emulator_stats, fpuemustats);
-#endif
 
 /* Control registers */
 
@@ -171,17 +171,16 @@ static int isBranchInstr(mips_instruction * i)
  * In the Linux kernel, we support selection of FPR format on the
  * basis of the Status.FR bit.  If an FPU is not present, the FR bit
  * is hardwired to zero, which would imply a 32-bit FPU even for
- * 64-bit CPUs so we rather look at TIF_32BIT_REGS.
- * FPU emu is slow and bulky and optimizing this function offers fairly
- * sizeable benefits so we try to be clever and make this function return
- * a constant whenever possible, that is on 64-bit kernels without O32
- * compatibility enabled and on 32-bit kernels.
+ * 64-bit CPUs.  For 64-bit kernels with no FPU we use TIF_32BIT_REGS
+ * as a proxy for the FR bit so that a 64-bit FPU is emulated.  In any
+ * case, for a 32-bit kernel which uses the O32 MIPS ABI, only the
+ * even FPRs are used (Status.FR = 0).
  */
 static inline int cop1_64bit(struct pt_regs *xcp)
 {
-#if defined(CONFIG_64BIT) && !defined(CONFIG_MIPS32_O32)
-	return 1;
-#elif defined(CONFIG_64BIT) && defined(CONFIG_MIPS32_O32)
+	if (cpu_has_fpu)
+		return xcp->cp0_status & ST0_FR;
+#ifdef CONFIG_64BIT
 	return !test_thread_flag(TIF_32BIT_REGS);
 #else
 	return 0;
@@ -1361,7 +1360,6 @@ int fpu_emulator_cop1Handler(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 
 	return sig;
 }
-
 #ifdef CONFIG_DEBUG_FS
 
 static int fpuemu_stat_get(void *data, u64 *val)
@@ -1410,4 +1408,11 @@ static int __init debugfs_fpuemu(void)
 	return 0;
 }
 __initcall(debugfs_fpuemu);
-#endif
+#endif /* CONFIG_DEBUGFS */
+#else
+int fpu_emulator_cop1Handler(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
+        int has_fpu)
+{
+	return 0;
+}
+#endif /* CONFIG_MIPS_FPU_EMU */

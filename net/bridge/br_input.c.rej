@@ -1,0 +1,20 @@
+--- net/bridge/br_input.c	2017-04-12 13:26:04.587814322 +0800
++++ net/bridge/br_input.c	2017-04-12 13:26:44.027813459 +0800
+@@ -295,7 +295,7 @@
+ 						wl_pktc_req_hook(GET_PKTC_TX_MODE, 0, 0, 0) : 0;
+ 
+ 			src = __br_fdb_get(br, eth_hdr(skb)->h_source);
+-			if (unlikely(src == NULL))
++			if (unlikely(src == NULL) || unlikely(src->dst == NULL))
+ 				goto next;
+ 
+ 			srcPhyType = BLOG_GET_PHYTYPE(src->dst->dev->path.hw_port_type);
+@@ -336,7 +336,7 @@
+ 			 *
+ 			 * The netdev_path_is_root() check makes sure that we 
+ 			 * are always transmitting to a root device */
+-			 
++ 
+ 			    /* Update chaining table for DHD on the wl to switch direction only */
+ 				if (from_wl_to_switch && (dhd_pktc_req_hook != NULL)) {
+ 					dhd_pktc_req_hook(UPDATE_BRC_HOT,

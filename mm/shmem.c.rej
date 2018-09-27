@@ -1,0 +1,18 @@
+--- mm/shmem.c	2012-09-15 06:18:55.000000000 +0800
++++ mm/shmem.c	2016-02-22 00:57:31.000000000 +0800
+@@ -2688,11 +2756,15 @@
+ 	if (IS_ERR(file))
+ 		return PTR_ERR(file);
+ 
++#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
+ 	if (vma->vm_file)
+ 		fput(vma->vm_file);
+ 	vma->vm_file = file;
+ 	vma->vm_ops = &shmem_vm_ops;
+ 	vma->vm_flags |= VM_CAN_NONLINEAR;
++#else
++	shmem_set_file(vma, file);
++#endif
+ 	return 0;
+ }
+ 

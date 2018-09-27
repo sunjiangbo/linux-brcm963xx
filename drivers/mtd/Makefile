@@ -12,6 +12,7 @@ obj-$(CONFIG_MTD_CMDLINE_PARTS) += cmdlinepart.o
 obj-$(CONFIG_MTD_AFS_PARTS)	+= afs.o
 obj-$(CONFIG_MTD_AR7_PARTS)	+= ar7part.o
 obj-$(CONFIG_MTD_BCM63XX_PARTS)	+= bcm63xxpart.o
+obj-$(CONFIG_MTD_MYLOADER_PARTS) += myloader.o
 
 # 'Users' - code which presents functionality to userspace.
 obj-$(CONFIG_MTD_CHAR)		+= mtdchar.o
@@ -32,4 +33,7 @@ inftl-objs		:= inftlcore.o inftlmount.o
 
 obj-y		+= chips/ lpddr/ maps/ devices/ nand/ onenand/ tests/
 
+ifdef BCM_KF # defined(CONFIG_BCM_KF_MTD_BCMNAND)
+obj-$(CONFIG_MTD_BRCMNAND)	+= brcmnand/
+endif #BCM_KF # defined(CONFIG_BCM_KF_MTD_BCMNAND)
 obj-$(CONFIG_MTD_UBI)		+= ubi/

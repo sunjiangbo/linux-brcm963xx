@@ -1,0 +1,13 @@
+--- arch/mips/Kconfig	2012-09-15 06:18:55.000000000 +0800
++++ arch/mips/Kconfig	2016-02-22 00:57:31.000000000 +0800
+@@ -896,7 +914,9 @@
+ 	bool
+ 
+ config BOOT_RAW
+-	bool
++	bool 
++	prompt "boot frow raw image" if BCM_KF_MIPS_BCM963XX || BCM_KF_MIPS_BCM9685XX 
++	default n
+ 
+ config CEVT_BCM1480
+ 	bool

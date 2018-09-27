@@ -1,0 +1,21 @@
+--- net/ipv4/netfilter/ip_tables.c	2012-09-15 06:18:55.000000000 +0800
++++ net/ipv4/netfilter/ip_tables.c	2016-02-22 00:57:31.000000000 +0800
+@@ -93,10 +105,17 @@
+ 
+ #define FWINV(bool, invflg) ((bool) ^ !!(ipinfo->invflags & (invflg)))
+ 
++#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG_FEATURE)
++	if ( ipinfo->proto == IPPROTO_TCP )
++		skb->ipt_check |= IPT_MATCH_TCP;
++	else if ( ipinfo->proto == IPPROTO_UDP )
++		skb->ipt_check |= IPT_MATCH_UDP;
++#endif
++
+ 	if (FWINV((ip->saddr&ipinfo->smsk.s_addr) != ipinfo->src.s_addr,
+ 		  IPT_INV_SRCIP) ||
+ 	    FWINV((ip->daddr&ipinfo->dmsk.s_addr) != ipinfo->dst.s_addr,
+-		  IPT_INV_DSTIP)) {
++		     IPT_INV_DSTIP)) {
+ 		dprintf("Source or dest mismatch.\n");
+ 
+ 		dprintf("SRC: %pI4. Mask: %pI4. Target: %pI4.%s\n",

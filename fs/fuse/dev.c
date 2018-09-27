@@ -19,6 +19,9 @@
 #include <linux/pipe_fs_i.h>
 #include <linux/swap.h>
 #include <linux/splice.h>
+#ifdef CONFIG_MIPS
+#include <asm/cacheflush.h>
+#endif
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -387,7 +390,14 @@ __acquires(fc->lock)
 	 * Wait it out.
 	 */
 	spin_unlock(&fc->lock);
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	wait_event(req->waitq, req->state == FUSE_REQ_FINISHED);
+#else
+
+	while (req->state != FUSE_REQ_FINISHED)
+		wait_event_freezable(req->waitq,
+				     req->state == FUSE_REQ_FINISHED);
+#endif
 	spin_lock(&fc->lock);
 
 	if (!req->aborted)
@@ -655,6 +665,9 @@ static int fuse_copy_fill(struct fuse_copy_state *cs)
 static int fuse_copy_do(struct fuse_copy_state *cs, void **val, unsigned *size)
 {
 	unsigned ncpy = min(*size, cs->len);
+#ifdef CONFIG_MIPS
+	__flush_cache_all();
+#endif
 	if (val) {
 		if (cs->write)
 			memcpy(cs->buf, *val, ncpy);

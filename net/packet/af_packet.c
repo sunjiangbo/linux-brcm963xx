@@ -88,6 +88,7 @@
 #include <linux/virtio_net.h>
 #include <linux/errqueue.h>
 #include <linux/net_tstamp.h>
+#include <linux/delay.h>
 
 #ifdef CONFIG_INET
 #include <net/inet_common.h>
@@ -295,6 +296,7 @@ struct packet_sock {
 	unsigned int		tp_loss:1;
 	unsigned int		tp_tstamp;
 	struct packet_type	prot_hook ____cacheline_aligned_in_smp;
+	unsigned int		pkt_type;
 };
 
 #define PACKET_FANOUT_MAX	256
@@ -672,7 +674,7 @@ static void prb_retire_rx_blk_timer_expired(unsigned long data)
 	if (BLOCK_NUM_PKTS(pbd)) {
 		while (atomic_read(&pkc->blk_fill_in_prog)) {
 			/* Waiting for skb_copy_bits to finish... */
-			cpu_relax();
+			cpu_chill();
 		}
 	}
 
@@ -927,7 +929,7 @@ static void prb_retire_current_block(struct tpacket_kbdq_core *pkc,
 		if (!(status & TP_STATUS_BLK_TMO)) {
 			while (atomic_read(&pkc->blk_fill_in_prog)) {
 				/* Waiting for skb_copy_bits to finish... */
-				cpu_relax();
+				cpu_chill();
 			}
 		}
 		prb_close_block(pkc, pbd, po, status);
@@ -1280,6 +1282,16 @@ static void __fanout_unlink(struct sock *sk, struct packet_sock *po)
 	spin_unlock(&f->lock);
 }
 
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+bool match_fanout_group(struct packet_type *ptype, struct sock * sk)
+{
+	if (ptype->af_packet_priv == (void*)((struct packet_sock *)sk)->fanout)
+		return true;
+
+	return false;
+}
+
+#endif
 static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 {
 	struct packet_sock *po = pkt_sk(sk);
@@ -1332,6 +1344,9 @@ static int fanout_add(struct sock *sk, u16 id, u16 type_flags)
 		match->prot_hook.dev = po->prot_hook.dev;
 		match->prot_hook.func = packet_rcv_fanout;
 		match->prot_hook.af_packet_priv = match;
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+		match->prot_hook.id_match = match_fanout_group;
+#endif
 		dev_add_pack(&match->prot_hook);
 		list_add(&match->list, &fanout_list);
 	}
@@ -1382,6 +1397,7 @@ static int packet_rcv_spkt(struct sk_buff *skb, struct net_device *dev,
 {
 	struct sock *sk;
 	struct sockaddr_pkt *spkt;
+	struct packet_sock *po;
 
 	/*
 	 *	When we registered the protocol we saved the socket in the data
@@ -1389,6 +1405,7 @@ static int packet_rcv_spkt(struct sk_buff *skb, struct net_device *dev,
 	 */
 
 	sk = pt->af_packet_priv;
+	po = pkt_sk(sk);
 
 	/*
 	 *	Yank back the headers [hope the device set this
@@ -1401,7 +1418,7 @@ static int packet_rcv_spkt(struct sk_buff *skb, struct net_device *dev,
 	 *	so that this procedure is noop.
 	 */
 
-	if (skb->pkt_type == PACKET_LOOPBACK)
+	if (!(po->pkt_type & (1 << skb->pkt_type)))
 		goto out;
 
 	if (!net_eq(dev_net(dev), sock_net(sk)))
@@ -1607,11 +1624,11 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	int skb_len = skb->len;
 	unsigned int snaplen, res;
 
-	if (skb->pkt_type == PACKET_LOOPBACK)
-		goto drop;
-
 	sk = pt->af_packet_priv;
 	po = pkt_sk(sk);
+
+	if (!(po->pkt_type & (1 << skb->pkt_type)))
+		goto drop;
 
 	if (!net_eq(dev_net(dev), sock_net(sk)))
 		goto drop;
@@ -1731,11 +1748,11 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	struct timespec ts;
 	struct skb_shared_hwtstamps *shhwtstamps = skb_hwtstamps(skb);
 
-	if (skb->pkt_type == PACKET_LOOPBACK)
-		goto drop;
-
 	sk = pt->af_packet_priv;
 	po = pkt_sk(sk);
+
+	if (!(po->pkt_type & (1 << skb->pkt_type)))
+		goto drop;
 
 	if (!net_eq(dev_net(dev), sock_net(sk)))
 		goto drop;
@@ -1943,7 +1960,9 @@ static void tpacket_destruct_skb(struct sk_buff *skb)
 
 	if (likely(po->tx_ring.pg_vec)) {
 		ph = skb_shinfo(skb)->destructor_arg;
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 		BUG_ON(__packet_get_status(po, ph) != TP_STATUS_SENDING);
+#endif
 		BUG_ON(atomic_read(&po->tx_ring.pending) == 0);
 		atomic_dec(&po->tx_ring.pending);
 		__packet_set_status(po, ph, TP_STATUS_AVAILABLE);
@@ -2442,13 +2461,29 @@ static int packet_release(struct socket *sock)
 
 	packet_flush_mclist(sk);
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	memset(&req_u, 0, sizeof(req_u));
 
 	if (po->rx_ring.pg_vec)
+#else
+	if (po->rx_ring.pg_vec) {
+		memset(&req_u, 0, sizeof(req_u));
+#endif
 		packet_set_ring(sk, &req_u, 1, 0);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
+#if !defined(CONFIG_BCM_KF_ANDROID) || !defined(CONFIG_BCM_ANDROID)
 	if (po->tx_ring.pg_vec)
+#else
+	if (po->tx_ring.pg_vec) {
+		memset(&req_u, 0, sizeof(req_u));
+#endif
 		packet_set_ring(sk, &req_u, 1, 1);
+#if defined(CONFIG_BCM_KF_ANDROID) && defined(CONFIG_BCM_ANDROID)
+	}
+#endif
 
 	fanout_release(sk);
 
@@ -2618,6 +2653,7 @@ static int packet_create(struct net *net, struct socket *sock, int protocol,
 	spin_lock_init(&po->bind_lock);
 	mutex_init(&po->pg_vec_lock);
 	po->prot_hook.func = packet_rcv;
+	po->pkt_type = PACKET_MASK_ANY & ~(1 << PACKET_LOOPBACK);
 
 	if (sock->type == SOCK_PACKET)
 		po->prot_hook.func = packet_rcv_spkt;
@@ -3215,6 +3251,16 @@ packet_setsockopt(struct socket *sock, int level, int optname, char __user *optv
 
 		return fanout_add(sk, val & 0xffff, val >> 16);
 	}
+        case PACKET_RECV_TYPE:
+        {
+                unsigned int val;
+                if (optlen != sizeof(val))
+                        return -EINVAL;
+                if (copy_from_user(&val, optval, sizeof(val)))
+                        return -EFAULT;
+                po->pkt_type = val & ~PACKET_LOOPBACK;
+                return 0;
+        }
 	default:
 		return -ENOPROTOOPT;
 	}
@@ -3282,6 +3328,13 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 		if (len > sizeof(int))
 			len = sizeof(int);
 		val = po->has_vnet_hdr;
+
+		data = &val;
+		break;
+	case PACKET_RECV_TYPE:
+		if (len > sizeof(unsigned int))
+			len = sizeof(unsigned int);
+		val = po->pkt_type;
 
 		data = &val;
 		break;

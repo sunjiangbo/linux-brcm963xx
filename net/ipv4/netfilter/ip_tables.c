@@ -30,6 +30,12 @@
 #include <net/netfilter/nf_log.h>
 #include "../../netfilter/xt_repldata.h"
 
+#if defined(CONFIG_BCM_KF_RUNNER)
+#if defined(CONFIG_BCM_RDPA) || defined(CONFIG_BCM_RDPA_MODULE)
+#include <net/bl_ops.h>
+#endif /* CONFIG_BCM_RUNNER */
+#endif /* CONFIG_BCM_KF_RUNNER */
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
 MODULE_DESCRIPTION("IPv4 packet filter");
@@ -71,7 +77,13 @@ EXPORT_SYMBOL_GPL(ipt_alloc_initial_table);
 /* Returns whether matches rule or not. */
 /* Performance critical - called for every packet */
 static inline bool
+
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG_FEATURE)
+ip_packet_match(struct sk_buff *skb,
+                const struct iphdr *ip,
+#else
 ip_packet_match(const struct iphdr *ip,
+#endif
 		const char *indev,
 		const char *outdev,
 		const struct ipt_ip *ipinfo,
@@ -81,9 +93,14 @@ ip_packet_match(const struct iphdr *ip,
 
 #define FWINV(bool, invflg) ((bool) ^ !!(ipinfo->invflags & (invflg)))
 
-	if (FWINV((ip->saddr&ipinfo->smsk.s_addr) != ipinfo->src.s_addr,
+	if (ipinfo->flags & IPT_F_NO_DEF_MATCH)
+		return true;
+
+	if (FWINV(ipinfo->smsk.s_addr &&
+		  (ip->saddr&ipinfo->smsk.s_addr) != ipinfo->src.s_addr,
 		  IPT_INV_SRCIP) ||
-	    FWINV((ip->daddr&ipinfo->dmsk.s_addr) != ipinfo->dst.s_addr,
+	    FWINV(ipinfo->dmsk.s_addr &&
+		  (ip->daddr&ipinfo->dmsk.s_addr) != ipinfo->dst.s_addr,
 		  IPT_INV_DSTIP)) {
 		dprintf("Source or dest mismatch.\n");
 
@@ -132,6 +149,29 @@ ip_packet_match(const struct iphdr *ip,
 	}
 
 	return true;
+}
+
+static void
+ip_checkdefault(struct ipt_ip *ip)
+{
+	static const char iface_mask[IFNAMSIZ] = {};
+
+	if (ip->invflags || ip->flags & IPT_F_FRAG)
+		return;
+
+	if (memcmp(ip->iniface_mask, iface_mask, IFNAMSIZ) != 0)
+		return;
+
+	if (memcmp(ip->outiface_mask, iface_mask, IFNAMSIZ) != 0)
+		return;
+
+	if (ip->smsk.s_addr || ip->dmsk.s_addr)
+		return;
+
+	if (ip->proto)
+		return;
+
+	ip->flags |= IPT_F_NO_DEF_MATCH;
 }
 
 static bool
@@ -284,6 +324,33 @@ struct ipt_entry *ipt_next_entry(const struct ipt_entry *entry)
 	return (void *)entry + entry->next_offset;
 }
 
+static bool
+ipt_handle_default_rule(struct ipt_entry *e, unsigned int *verdict)
+{
+	struct xt_entry_target *t;
+	struct xt_standard_target *st;
+
+	if (e->target_offset != sizeof(struct ipt_entry))
+		return false;
+
+	if (!(e->ip.flags & IPT_F_NO_DEF_MATCH))
+		return false;
+
+	t = ipt_get_target(e);
+	if (t->u.kernel.target->target)
+		return false;
+
+	st = (struct xt_standard_target *) t;
+	if (st->verdict == XT_RETURN)
+		return false;
+
+	if (st->verdict >= 0)
+		return false;
+
+	*verdict = (unsigned)(-st->verdict) - 1;
+	return true;
+}
+
 /* Returns one of the generic firewall policies, like NF_ACCEPT. */
 unsigned int
 ipt_do_table(struct sk_buff *skb,
@@ -303,11 +370,31 @@ ipt_do_table(struct sk_buff *skb,
 	const struct xt_table_info *private;
 	struct xt_action_param acpar;
 	unsigned int addend;
+	int isRateLimit = 0;
 
 	/* Initialization */
 	ip = ip_hdr(skb);
 	indev = in ? in->name : nulldevname;
 	outdev = out ? out->name : nulldevname;
+
+	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
+	local_bh_disable();
+	addend = xt_write_recseq_begin();
+	private = table->private;
+	cpu        = smp_processor_id();
+	table_base = private->entries[cpu];
+	jumpstack  = (struct ipt_entry **)private->jumpstack[cpu];
+	stackptr   = per_cpu_ptr(private->stackptr, cpu);
+	origptr    = *stackptr;
+
+	e = get_entry(table_base, private->hook_entry[hook]);
+	if (ipt_handle_default_rule(e, &verdict)) {
+		ADD_COUNTER(e->counters, skb->len, 1);
+		xt_write_recseq_end(addend);
+		local_bh_enable();
+		return verdict;
+	}
+
 	/* We handle fragments by dealing with the first fragment as
 	 * if it was a normal packet.  All other fragments are treated
 	 * normally, except that they will NEVER match rules that ask
@@ -322,18 +409,6 @@ ipt_do_table(struct sk_buff *skb,
 	acpar.family  = NFPROTO_IPV4;
 	acpar.hooknum = hook;
 
-	IP_NF_ASSERT(table->valid_hooks & (1 << hook));
-	local_bh_disable();
-	addend = xt_write_recseq_begin();
-	private = table->private;
-	cpu        = smp_processor_id();
-	table_base = private->entries[cpu];
-	jumpstack  = (struct ipt_entry **)private->jumpstack[cpu];
-	stackptr   = per_cpu_ptr(private->stackptr, cpu);
-	origptr    = *stackptr;
-
-	e = get_entry(table_base, private->hook_entry[hook]);
-
 	pr_debug("Entering %s(hook %u); sp at %u (UF %p)\n",
 		 table->name, hook, origptr,
 		 get_entry(table_base, private->underflow[hook]));
@@ -343,9 +418,19 @@ ipt_do_table(struct sk_buff *skb,
 		const struct xt_entry_match *ematch;
 
 		IP_NF_ASSERT(e);
-		if (!ip_packet_match(ip, indev, outdev,
-		    &e->ip, acpar.fragoff)) {
+
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG_FEATURE)
+        skb->ipt_check = 0;
+        if (!ip_packet_match(skb, ip, indev, outdev,
+            &e->ip, acpar.fragoff)) {
+#else
+        if (!ip_packet_match(ip, indev, outdev,
+            &e->ip, acpar.fragoff)) {
+#endif
+
+#if !defined(CONFIG_BCM_KF_BLOG) || !defined(CONFIG_BLOG_FEATURE)
  no_match:
+#endif
 			e = ipt_next_entry(e);
 			continue;
 		}
@@ -353,8 +438,15 @@ ipt_do_table(struct sk_buff *skb,
 		xt_ematch_foreach(ematch, e) {
 			acpar.match     = ematch->u.kernel.match;
 			acpar.matchinfo = ematch->data;
+
 			if (!acpar.match->match(skb, &acpar))
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG_FEATURE)
+				skb->ipt_check |= IPT_TARGET_CHECK;
+#else
 				goto no_match;
+#endif
+			if(strstr(acpar.match->name, "limit") != NULL)
+				isRateLimit = 1;
 		}
 
 		ADD_COUNTER(e->counters, skb->len, 1);
@@ -367,7 +459,7 @@ ipt_do_table(struct sk_buff *skb,
 		/* The packet is traced: log it */
 		if (unlikely(skb->nf_trace))
 			trace_packet(skb, hook, in, out,
-				     table->name, private, e);
+			             table->name, private, e);
 #endif
 		/* Standard target? */
 		if (!t->u.kernel.target->target) {
@@ -376,48 +468,96 @@ ipt_do_table(struct sk_buff *skb,
 			v = ((struct xt_standard_target *)t)->verdict;
 			if (v < 0) {
 				/* Pop from stack? */
-				if (v != XT_RETURN) {
+			    if (v != XT_RETURN) {
 					verdict = (unsigned)(-v) - 1;
 					break;
 				}
-				if (*stackptr <= origptr) {
-					e = get_entry(table_base,
-					    private->underflow[hook]);
-					pr_debug("Underflow (this is normal) "
-						 "to %p\n", e);
-				} else {
-					e = jumpstack[--*stackptr];
-					pr_debug("Pulled %p out from pos %u\n",
-						 e, *stackptr);
-					e = ipt_next_entry(e);
-				}
+			    if (*stackptr <= origptr) {
+				    e = get_entry(table_base,
+				        private->underflow[hook]);
+				    pr_debug("Underflow (this is normal) "
+					         "to %p\n", e);
+			    } else {
+				    e = jumpstack[--*stackptr];
+				    pr_debug("Pulled %p out from pos %u\n",
+					          e, *stackptr);
+				    e = ipt_next_entry(e);
+			    }
 				continue;
 			}
-			if (table_base + v != ipt_next_entry(e) &&
-			    !(e->ip.flags & IPT_F_GOTO)) {
-				if (*stackptr >= private->stacksize) {
-					verdict = NF_DROP;
-					break;
-				}
-				jumpstack[(*stackptr)++] = e;
-				pr_debug("Pushed %p into pos %u\n",
-					 e, *stackptr - 1);
-			}
+
+		    if (table_base + v != ipt_next_entry(e) &&
+		        !(e->ip.flags & IPT_F_GOTO)) {
+			    if (*stackptr >= private->stacksize) {
+				    verdict = NF_DROP;
+				    break;
+			    }
+			    jumpstack[(*stackptr)++] = e;
+			    pr_debug("Pushed %p into pos %u\n",
+				     e, *stackptr - 1);
+		    }
 
 			e = get_entry(table_base, v);
-			continue;
+		    continue;
 		}
+
 
 		acpar.target   = t->u.kernel.target;
 		acpar.targinfo = t->data;
 
 		verdict = t->u.kernel.target->target(skb, &acpar);
-		/* Target might have changed stuff. */
-		ip = ip_hdr(skb);
+				/* Target might have changed stuff. */
+				ip = ip_hdr(skb);
+		        
+
+#if defined(CONFIG_BCM_KF_BLOG) && defined(CONFIG_BLOG_FEATURE)
+		if ( skb->ipt_check & IPT_TARGET_CHECK )
+			verdict = NF_DROP;
+
+		if ( skb->blog_p ) {
+			if ( (skb->ipt_check & IPT_MATCH_LENGTH) &&
+				 (skb->ipt_check & IPT_MATCH_TCP) &&
+				 (skb->ipt_check & IPT_TARGET_MARK) &&
+				 !(skb->blog_p->isWan) ) {
+				skb->blog_p->preMod = 1;
+				skb->blog_p->postMod = 1;
+				skb->blog_p->preHook = &blog_pre_mod_hook;
+				skb->blog_p->postHook = &blog_post_mod_hook;
+			}
+			if ( (skb->ipt_check & IPT_MATCH_LENGTH) &&
+				 (skb->ipt_check & IPT_TARGET_MARK) ) {
+				blog_set_len_tbl(skb->ipt_log.u32);
+				skb->blog_p->preMod = 1;
+				skb->blog_p->postMod = 1;
+				skb->blog_p->lenPrior = 1;
+				skb->blog_p->preHook = &blog_pre_mod_hook;
+				skb->blog_p->postHook = &blog_post_mod_hook;
+			}
+			if ( (skb->ipt_check & IPT_MATCH_DSCP) &&
+				 (skb->ipt_check & IPT_TARGET_DSCP) ) {
+				blog_set_dscp_tbl(skb->ipt_log.u8[BLOG_MATCH_DSCP_INDEX], skb->ipt_log.u8[BLOG_TARGET_DSCP_INDEX]);
+				skb->blog_p->preMod = 1;
+				skb->blog_p->postMod = 1;
+				skb->blog_p->dscpMangl = 1;
+				skb->blog_p->preHook = &blog_pre_mod_hook;
+				skb->blog_p->postHook = &blog_post_mod_hook;
+			}
+			if ( (skb->ipt_check & IPT_MATCH_TOS) &&
+				 (skb->ipt_check & IPT_TARGET_TOS) ) {
+				blog_set_tos_tbl(skb->ipt_log.u8[BLOG_MATCH_TOS_INDEX], skb->ipt_log.u8[BLOG_TARGET_DSCP_INDEX]);
+				skb->blog_p->preMod = 1;
+				skb->blog_p->postMod = 1;
+				skb->blog_p->tosMangl = 1;
+				skb->blog_p->preHook = &blog_pre_mod_hook;
+				skb->blog_p->postHook = &blog_post_mod_hook;
+			}
+		}
+#endif
+
 		if (verdict == XT_CONTINUE)
 			e = ipt_next_entry(e);
 		else
-			/* Verdict */
+                        /* Verdict */
 			break;
 	} while (!acpar.hotdrop);
 	pr_debug("Exiting %s; resetting sp from %u to %u\n",
@@ -431,7 +571,12 @@ ipt_do_table(struct sk_buff *skb,
 #else
 	if (acpar.hotdrop)
 		return NF_DROP;
-	else return verdict;
+	else{
+		if(isRateLimit == 1 && verdict == NF_ACCEPT){
+			blog_skip(skb);
+		}
+		return verdict;
+	}
 #endif
 }
 
@@ -561,7 +706,7 @@ static void cleanup_match(struct xt_entry_match *m, struct net *net)
 }
 
 static int
-check_entry(const struct ipt_entry *e, const char *name)
+check_entry(struct ipt_entry *e, const char *name)
 {
 	const struct xt_entry_target *t;
 
@@ -569,6 +714,8 @@ check_entry(const struct ipt_entry *e, const char *name)
 		duprintf("ip check failed %p %s.\n", e, name);
 		return -EINVAL;
 	}
+
+	ip_checkdefault(&e->ip);
 
 	if (e->target_offset + sizeof(struct xt_entry_target) >
 	    e->next_offset)
@@ -596,6 +743,13 @@ check_match(struct xt_entry_match *m, struct xt_mtchk_param *par)
 		duprintf("check failed for `%s'.\n", par->match->name);
 		return ret;
 	}
+
+    
+#if defined(CONFIG_BCM_KF_RUNNER)
+#if defined(CONFIG_BCM_RDPA) || defined(CONFIG_BCM_RDPA_MODULE)
+	BL_OPS(net_ipv4_netfilter_ip_tables_check_match(m, par, ip));
+#endif /* CONFIG_BCM_RUNNER */
+#endif /* CONFIG_BCM_KF_RUNNER */
 	return 0;
 }
 
@@ -670,8 +824,8 @@ find_check_entry(struct ipt_entry *e, struct net *net, const char *name,
 	mtpar.family    = NFPROTO_IPV4;
 	xt_ematch_foreach(ematch, e) {
 		ret = find_check_match(ematch, &mtpar);
-		if (ret != 0)
-			goto cleanup_matches;
+	if (ret != 0)
+		goto cleanup_matches;
 		++j;
 	}
 
@@ -753,7 +907,7 @@ check_entry_size_and_hooks(struct ipt_entry *e,
 				return -EINVAL;
 			}
 			newinfo->underflow[h] = underflows[h];
-		}
+	}
 	}
 
 	/* Clear counters and comefrom */
@@ -811,8 +965,8 @@ translate_table(struct net *net, struct xt_table_info *newinfo, void *entry0,
 						 repl->hook_entry,
 						 repl->underflow,
 						 repl->valid_hooks);
-		if (ret != 0)
-			return ret;
+	if (ret != 0)
+		return ret;
 		++i;
 		if (strcmp(ipt_get_target(iter)->u.user.name,
 		    XT_ERROR_TARGET) == 0)
@@ -883,7 +1037,7 @@ get_counters(const struct xt_table_info *t,
 	for_each_possible_cpu(cpu) {
 		seqcount_t *s = &per_cpu(xt_recseq, cpu);
 
-		i = 0;
+	i = 0;
 		xt_entry_foreach(iter, t->entries[cpu], t->size) {
 			u64 bcnt, pcnt;
 			unsigned int start;
@@ -931,6 +1085,7 @@ copy_entries_to_user(unsigned int total_size,
 	const struct xt_table_info *private = table->private;
 	int ret = 0;
 	const void *loc_cpu_entry;
+	u8 flags;
 
 	counters = alloc_counters(table);
 	if (IS_ERR(counters))
@@ -958,6 +1113,14 @@ copy_entries_to_user(unsigned int total_size,
 				 + offsetof(struct ipt_entry, counters),
 				 &counters[num],
 				 sizeof(counters[num])) != 0) {
+			ret = -EFAULT;
+			goto free_counters;
+		}
+
+		flags = e->ip.flags & IPT_F_MASK;
+		if (copy_to_user(userptr + off
+				 + offsetof(struct ipt_entry, ip.flags),
+				 &flags, sizeof(flags)) != 0) {
 			ret = -EFAULT;
 			goto free_counters;
 		}
@@ -1217,6 +1380,13 @@ __do_replace(struct net *net, const char *name, unsigned int valid_hooks,
 	    (newinfo->number <= oldinfo->initial_entries))
 		module_put(t->me);
 
+
+#if defined(CONFIG_BCM_KF_RUNNER)
+#if defined(CONFIG_BCM_RDPA) || defined(CONFIG_BCM_RDPA_MODULE)
+        BL_OPS(net_ipv4_netfilter_ip_tables___do_replace(oldinfo, newinfo));
+#endif /* CONFIG_BCM_RUNNER */
+#endif /* CONFIG_BCM_KF_RUNNER */
+
 	/* Get the old counters, and synchronize with replace */
 	get_counters(oldinfo, counters);
 
@@ -1270,6 +1440,13 @@ do_replace(struct net *net, const void __user *user, unsigned int len)
 		ret = -EFAULT;
 		goto free_newinfo;
 	}
+
+#if defined(CONFIG_BCM_KF_RUNNER)
+#if defined(CONFIG_BCM_RDPA) || defined(CONFIG_BCM_RDPA_MODULE)
+		BL_OPS(net_ipv4_netfilter_ip_tables_do_replace(&tmp));
+#endif /* CONFIG_BCM_RUNNER */
+#endif /* CONFIG_BCM_KF_RUNNER */
+
 
 	ret = translate_table(net, newinfo, loc_cpu_entry, &tmp);
 	if (ret != 0)
@@ -1507,8 +1684,8 @@ check_compat_entry_size_and_hooks(struct compat_ipt_entry *e,
 	xt_ematch_foreach(ematch, e) {
 		ret = compat_find_calc_match(ematch, name,
 					     &e->ip, e->comefrom, &off);
-		if (ret != 0)
-			goto release_matches;
+	if (ret != 0)
+		goto release_matches;
 		++j;
 	}
 
@@ -1577,7 +1754,7 @@ compat_copy_entry_from_user(struct compat_ipt_entry *e, void **dstptr,
 	xt_ematch_foreach(ematch, e) {
 		ret = xt_compat_match_from_user(ematch, dstptr, size);
 		if (ret != 0)
-			return ret;
+		return ret;
 	}
 	de->target_offset = e->target_offset - (origsize - *size);
 	t = compat_ipt_get_target(e);
@@ -1611,7 +1788,7 @@ compat_check_entry(struct ipt_entry *e, struct net *net, const char *name)
 	xt_ematch_foreach(ematch, e) {
 		ret = check_match(ematch, &mtpar);
 		if (ret != 0)
-			goto cleanup_matches;
+		goto cleanup_matches;
 		++j;
 	}
 
@@ -1667,12 +1844,12 @@ translate_compat_table(struct net *net,
 	xt_entry_foreach(iter0, entry0, total_size) {
 		ret = check_compat_entry_size_and_hooks(iter0, info, &size,
 							entry0,
-							entry0 + total_size,
+				       entry0 + total_size,
 							hook_entries,
 							underflows,
 							name);
-		if (ret != 0)
-			goto out_unlock;
+	if (ret != 0)
+		goto out_unlock;
 		++j;
 	}
 
@@ -2162,17 +2339,17 @@ static int icmp_checkentry(const struct xt_mtchk_param *par)
 static struct xt_target ipt_builtin_tg[] __read_mostly = {
 	{
 		.name             = XT_STANDARD_TARGET,
-		.targetsize       = sizeof(int),
+	.targetsize	= sizeof(int),
 		.family           = NFPROTO_IPV4,
 #ifdef CONFIG_COMPAT
-		.compatsize       = sizeof(compat_int_t),
-		.compat_from_user = compat_standard_from_user,
-		.compat_to_user   = compat_standard_to_user,
+	.compatsize	= sizeof(compat_int_t),
+	.compat_from_user = compat_standard_from_user,
+	.compat_to_user	= compat_standard_to_user,
 #endif
 	},
 	{
 		.name             = XT_ERROR_TARGET,
-		.target           = ipt_error,
+	.target		= ipt_error,
 		.targetsize       = XT_FUNCTION_MAXNAMELEN,
 		.family           = NFPROTO_IPV4,
 	},
@@ -2197,11 +2374,11 @@ static struct nf_sockopt_ops ipt_sockopts = {
 
 static struct xt_match ipt_builtin_mt[] __read_mostly = {
 	{
-		.name       = "icmp",
-		.match      = icmp_match,
-		.matchsize  = sizeof(struct ipt_icmp),
-		.checkentry = icmp_checkentry,
-		.proto      = IPPROTO_ICMP,
+	.name		= "icmp",
+	.match		= icmp_match,
+	.matchsize	= sizeof(struct ipt_icmp),
+	.checkentry	= icmp_checkentry,
+	.proto		= IPPROTO_ICMP,
 		.family     = NFPROTO_IPV4,
 	},
 };
@@ -2229,7 +2406,7 @@ static int __init ip_tables_init(void)
 	if (ret < 0)
 		goto err1;
 
-	/* No one else will be downing sem now, so we won't sleep */
+	/* Noone else will be downing sem now, so we won't sleep */
 	ret = xt_register_targets(ipt_builtin_tg, ARRAY_SIZE(ipt_builtin_tg));
 	if (ret < 0)
 		goto err2;

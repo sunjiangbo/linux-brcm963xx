@@ -25,7 +25,6 @@
 #include <bcm63xx_dev_enet.h>
 #include <bcm63xx_dev_dsp.h>
 #include <bcm63xx_dev_pcmcia.h>
-#include <bcm63xx_dev_spi.h>
 #include <board_bcm963xx.h>
 
 #define PFX	"board_bcm963xx: "
@@ -890,8 +889,6 @@ int __init board_register_devices(void)
 			pr_err(PFX "failed to register fallback SPROM\n");
 	}
 #endif
-
-	bcm63xx_spi_register();
 
 	/* read base address of boot chip select (0) */
 	val = bcm_mpi_readl(MPI_CSBASE_REG(0));

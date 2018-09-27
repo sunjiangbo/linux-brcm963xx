@@ -34,6 +34,7 @@ menu "Machine selection"
 
 config ZONE_DMA
 	bool
+	default y if BCM_KF_MIPS_BCM963XX
 
 choice
 	prompt "System type"
@@ -114,11 +115,28 @@ config BCM63XX
 	select SYS_HAS_CPU_MIPS32_R1
 	select SYS_SUPPORTS_32BIT_KERNEL
 	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_LITTLE_ENDIAN if BCM_KF_MIPS_BCM963XX
 	select SYS_HAS_EARLY_PRINTK
 	select SWAP_IO_SPACE
 	select ARCH_REQUIRE_GPIOLIB
 	help
 	 Support for BCM63XX based boards
+
+config MIPS_BCM963XX
+	bool "Broadcom 96xxx boards (kern)"
+	select CEVT_R4K
+	select CSRC_R4K
+	select IRQ_CPU
+	select DMA_NONCOHERENT
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select SYS_HAS_CPU_MIPS32_R1
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_LITTLE_ENDIAN
+	select HW_HAS_PCI
+ 	depends on BCM_KF_MIPS_BCM963XX
+	help
+	 "Support for BCM963XX boards"
+
 
 config MIPS_COBALT
 	bool "Cobalt Server"
@@ -877,9 +895,6 @@ config ARC
 config ARCH_MAY_HAVE_PC_FDC
 	bool
 
-config BOOT_RAW
-	bool
-
 config CEVT_BCM1480
 	bool
 
@@ -964,6 +979,17 @@ config I8259
 config MIPS_BONITO64
 	bool
 
+config MIPS_FPU_EMU
+	bool "Enable FPU emulation"
+	default y
+	help
+	   This option allows building a kernel with or without the Algorithmics
+	   FPU emulator enabled. Turning off this option results in a kernel which
+	   does not catch floating operations exceptions. Make sure that your toolchain
+	   is configured to enable software floating point emulation in that case.
+		
+	   If unsure say Y here.
+
 config MIPS_MSC
 	bool
 
@@ -978,6 +1004,10 @@ config SYNC_R4K
 
 config MIPS_MACHINE
 	def_bool n
+
+config IMAGE_CMDLINE_HACK
+	bool "OpenWrt specific image command line hack"
+	default n
 
 config NO_IOPORT
 	def_bool n
@@ -1159,6 +1189,7 @@ config BOOT_ELF32
 
 config MIPS_L1_CACHE_SHIFT
 	int
+	default "4" if BCM_KF_MIPS_BCM963XX && MIPS_BCM963XX
 	default "4" if MACH_DECSTATION || MIKROTIK_RB532 || PMC_MSP4200_EVAL
 	default "6" if MIPS_CPU_SCACHE
 	default "7" if SGI_IP22 || SGI_IP27 || SGI_IP28 || SNI_RM || CPU_CAVIUM_OCTEON
@@ -1786,12 +1817,10 @@ endchoice
 
 config FORCE_MAX_ZONEORDER
 	int "Maximum zone order"
-	range 14 64 if HUGETLB_PAGE && PAGE_SIZE_64KB
-	default "14" if HUGETLB_PAGE && PAGE_SIZE_64KB
-	range 13 64 if HUGETLB_PAGE && PAGE_SIZE_32KB
-	default "13" if HUGETLB_PAGE && PAGE_SIZE_32KB
-	range 12 64 if HUGETLB_PAGE && PAGE_SIZE_16KB
-	default "12" if HUGETLB_PAGE && PAGE_SIZE_16KB
+	range 13 64 if SYS_SUPPORTS_HUGETLBFS && PAGE_SIZE_32KB
+	default "13" if SYS_SUPPORTS_HUGETLBFS && PAGE_SIZE_32KB
+	range 12 64 if SYS_SUPPORTS_HUGETLBFS && PAGE_SIZE_16KB
+	default "12" if SYS_SUPPORTS_HUGETLBFS && PAGE_SIZE_16KB
 	range 11 64
 	default "11"
 	help
@@ -2083,7 +2112,7 @@ config CPU_R4400_WORKAROUNDS
 #
 config HIGHMEM
 	bool "High Memory Support"
-	depends on 32BIT && CPU_SUPPORTS_HIGHMEM && SYS_SUPPORTS_HIGHMEM
+	depends on 32BIT && CPU_SUPPORTS_HIGHMEM && SYS_SUPPORTS_HIGHMEM && !PREEMPT_RT_FULL
 
 config CPU_SUPPORTS_HIGHMEM
 	bool
@@ -2272,12 +2301,23 @@ config SYS_SUPPORTS_1000HZ
 config SYS_SUPPORTS_1024HZ
 	bool
 
+if BCM_KF_MIPS_BCM963XX || BCM_KF_MIPS_BCM9685XX
 config SYS_SUPPORTS_ARBIT_HZ
 	bool
 	default y if !SYS_SUPPORTS_48HZ && !SYS_SUPPORTS_100HZ && \
 		     !SYS_SUPPORTS_128HZ && !SYS_SUPPORTS_250HZ && \
 		     !SYS_SUPPORTS_256HZ && !SYS_SUPPORTS_1000HZ && \
 		     !SYS_SUPPORTS_1024HZ
+endif
+
+if !BCM_KF_MIPS_BCM963XX && !BCM_KF_MIPS_BCM9685XX
+config SYS_SUPPORTS_ARBIT_HZ
+	bool
+	default y if !SYS_SUPPORTS_48HZ && !SYS_SUPPORTS_100HZ && \
+		     !SYS_SUPPORTS_128HZ && !SYS_SUPPORTS_250HZ && \
+		     !SYS_SUPPORTS_256HZ && !SYS_SUPPORTS_1000HZ && \
+		     !SYS_SUPPORTS_1024HZ
+endif
 
 config HZ
 	int
@@ -2333,6 +2373,18 @@ config USE_OF
 	help
 	  Include support for flattened device tree machine descriptions.
 
+config BOOT_RAW
+	bool "Enable the kernel to be executed from the load address"
+	default n
+	help
+	 Allow the kernel to be executed from the load address for
+	 bootloaders which cannot read the ELF format. This places
+	 a jump to start_kernel at the load address.
+
+	 If unsure, say N.
+
+
+
 endmenu
 
 config LOCKDEP_SUPPORT
@@ -2368,6 +2420,10 @@ config PCI
 
 config PCI_DOMAINS
 	bool
+
+if BCM_KF_MIPS_BCM963XX
+source "drivers/pci/pcie/Kconfig"
+endif
 
 source "drivers/pci/Kconfig"
 
@@ -2491,7 +2547,6 @@ config MIPS32_N32
 config BINFMT_ELF32
 	bool
 	default y if MIPS32_O32 || MIPS32_N32
-
 endmenu
 
 menu "Power management options"
@@ -2523,3 +2578,8 @@ source "security/Kconfig"
 source "crypto/Kconfig"
 
 source "lib/Kconfig"
+
+
+	
+
+

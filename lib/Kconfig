@@ -21,9 +21,11 @@ config GENERIC_FIND_FIRST_BIT
 
 config NO_GENERIC_PCI_IOPORT_MAP
 	bool
+	default y
 
 config GENERIC_PCI_IOMAP
 	bool
+	default y
 
 config GENERIC_IOMAP
 	bool
@@ -179,6 +181,12 @@ config LZO_DECOMPRESS
 
 source "lib/xz/Kconfig"
 
+config LZMA_COMPRESS
+    tristate
+
+config LZMA_DECOMPRESS
+    tristate
+
 #
 # These all provide a common interface (hence the apparent duplication with
 # ZLIB_INFLATE; DECOMPRESS_GZIP is just a wrapper.)
@@ -268,16 +276,16 @@ config BCH_CONST_T
 # Textsearch support is select'ed if needed
 #
 config TEXTSEARCH
-	boolean
+	boolean	"Textsearch support"
 
 config TEXTSEARCH_KMP
-	tristate
+	tristate "Textsearch KMP"
 
 config TEXTSEARCH_BM
-	tristate
+	tristate "Textsearch BM"
 
 config TEXTSEARCH_FSM
-	tristate
+	tristate "Textsearch FSM"
 
 config BTREE
 	boolean
@@ -303,6 +311,7 @@ config CHECK_SIGNATURE
 
 config CPUMASK_OFFSTACK
 	bool "Force CPU masks off stack" if DEBUG_PER_CPU_MAPS
+	depends on !PREEMPT_RT_FULL
 	help
 	  Use dynamic allocation for cpumask_var_t, instead of putting
 	  them on the stack.  This is a bit more expensive, but avoids

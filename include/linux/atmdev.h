@@ -106,6 +106,11 @@ struct atm_dev_stats {
 #endif
 #define ATM_DROPPARTY 	_IOW('a', ATMIOC_SPECIAL+5,int)
 					/* drop party from p2mp call */
+					
+#if defined(CONFIG_BCM_KF_ATM_BACKEND)
+#define ATM_EXTBACKENDIF _IOW('a',ATMIOC_SPECIAL+6,atm_backend_t)
+#define ATM_SETEXTFILT  _IOW('a',ATMIOC_SPECIAL+7,atm_backend_t)
+#endif
 
 /*
  * These are backend handkers that can be set via the ATM_SETBACKEND call
@@ -115,6 +120,14 @@ struct atm_dev_stats {
 #define ATM_BACKEND_RAW		0	
 #define ATM_BACKEND_PPP		1	/* PPPoATM - RFC2364 */
 #define ATM_BACKEND_BR2684	2	/* Bridged RFC1483/2684 */
+
+#if defined(CONFIG_BCM_KF_ATM_BACKEND)
+#define ATM_BACKEND_RT2684       3  /* Routed RFC1483/2684 */
+#define ATM_BACKEND_BR2684_BCM   4  /* Bridged RFC1483/2684 uses Broadcom ATMAPI*/
+#define ATM_BACKEND_PPP_BCM      5  /* PPPoA uses Broadcom bcmxtmrt driver */
+#define ATM_BACKEND_PPP_BCM_DISCONN    6  /* PPPoA LCP disconnect */
+#define ATM_BACKEND_PPP_BCM_CLOSE_DEV  7  /* PPPoA close device */
+#endif
 
 /* for ATM_GETTYPE */
 #define ATM_ITFTYP_LEN	8	/* maximum length of interface type name */
@@ -308,6 +321,7 @@ struct atm_vcc {
 	struct atm_dev	*dev;		/* device back pointer */
 	struct atm_qos	qos;		/* QOS */
 	struct atm_sap	sap;		/* SAP */
+	void (*release_cb)(struct atm_vcc *vcc); /* release_sock callback */
 	void (*push)(struct atm_vcc *vcc,struct sk_buff *skb);
 	void (*pop)(struct atm_vcc *vcc,struct sk_buff *skb); /* optional */
 	int (*push_oam)(struct atm_vcc *vcc,void *cell);
@@ -315,6 +329,7 @@ struct atm_vcc {
 	void		*dev_data;	/* per-device data */
 	void		*proto_data;	/* per-protocol data */
 	struct k_atm_aal_stats *stats;	/* pointer to AAL stats group */
+	struct module *owner;		/* owner of ->push function */
 	/* SVC part --- may move later ------------------------------------- */
 	short		itf;		/* interface number */
 	struct sockaddr_atmsvc local;

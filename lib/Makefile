@@ -2,6 +2,16 @@
 # Makefile for some libs needed in the kernel.
 #
 
+ifdef CONFIG_JFFS2_ZLIB
+	CONFIG_ZLIB_INFLATE:=y
+	CONFIG_ZLIB_DEFLATE:=y
+endif
+
+ifdef CONFIG_JFFS2_LZMA
+	CONFIG_LZMA_DECOMPRESS:=y
+	CONFIG_LZMA_COMPRESS:=y
+endif
+
 ifdef CONFIG_FUNCTION_TRACER
 ORIG_CFLAGS := $(KBUILD_CFLAGS)
 KBUILD_CFLAGS = $(subst -pg,,$(ORIG_CFLAGS))
@@ -38,8 +48,11 @@ obj-$(CONFIG_HAS_IOMEM) += iomap_copy.o devres.o
 obj-$(CONFIG_CHECK_SIGNATURE) += check_signature.o
 obj-$(CONFIG_DEBUG_LOCKING_API_SELFTESTS) += locking-selftest.o
 obj-$(CONFIG_DEBUG_SPINLOCK) += spinlock_debug.o
+
+ifneq ($(CONFIG_PREEMPT_RT_FULL),y)
 lib-$(CONFIG_RWSEM_GENERIC_SPINLOCK) += rwsem-spinlock.o
 lib-$(CONFIG_RWSEM_XCHGADD_ALGORITHM) += rwsem.o
+endif
 
 CFLAGS_hweight.o = $(subst $(quote),,$(CONFIG_ARCH_HWEIGHT_CFLAGS))
 obj-$(CONFIG_GENERIC_HWEIGHT) += hweight.o
@@ -73,6 +86,8 @@ obj-$(CONFIG_LZO_COMPRESS) += lzo/
 obj-$(CONFIG_LZO_DECOMPRESS) += lzo/
 obj-$(CONFIG_XZ_DEC) += xz/
 obj-$(CONFIG_RAID6_PQ) += raid6/
+obj-$(CONFIG_LZMA_COMPRESS) += lzma/
+obj-$(CONFIG_LZMA_DECOMPRESS) += lzma/
 
 lib-$(CONFIG_DECOMPRESS_GZIP) += decompress_inflate.o
 lib-$(CONFIG_DECOMPRESS_BZIP2) += decompress_bunzip2.o

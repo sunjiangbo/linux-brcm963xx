@@ -105,14 +105,14 @@ void free_fdtable_rcu(struct rcu_head *rcu)
 		kfree(fdt->open_fds);
 		kfree(fdt);
 	} else {
-		fddef = &get_cpu_var(fdtable_defer_list);
+		fddef = &per_cpu(fdtable_defer_list, get_cpu_light());
 		spin_lock(&fddef->lock);
 		fdt->next = fddef->next;
 		fddef->next = fdt;
 		/* vmallocs are handled from the workqueue context */
 		schedule_work(&fddef->wq);
 		spin_unlock(&fddef->lock);
-		put_cpu_var(fdtable_defer_list);
+		put_cpu_light();
 	}
 }
 
@@ -269,6 +269,7 @@ int expand_files(struct files_struct *files, int nr)
 	/* All good, so we try */
 	return expand_fdtable(files, nr);
 }
+EXPORT_SYMBOL_GPL(expand_files);
 
 static int count_open_files(struct fdtable *fdt)
 {
@@ -421,7 +422,7 @@ struct files_struct init_files = {
 		.close_on_exec	= init_files.close_on_exec_init,
 		.open_fds	= init_files.open_fds_init,
 	},
-	.file_lock	= __SPIN_LOCK_UNLOCKED(init_task.file_lock),
+	.file_lock	= __SPIN_LOCK_UNLOCKED(init_files.file_lock),
 };
 
 /*

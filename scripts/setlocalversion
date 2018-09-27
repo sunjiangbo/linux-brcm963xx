@@ -159,6 +159,7 @@ fi
 res="${res}${CONFIG_LOCALVERSION}${LOCALVERSION}"
 
 # scm version string if not at a tagged commit
+if false ; then # CONFIG_BCM_KF
 if test "$CONFIG_LOCALVERSION_AUTO" = "y"; then
 	# full scm version string
 	res="$res$(scm_version)"
@@ -167,10 +168,11 @@ else
 	# annotated or signed tagged state (as git describe only
 	# looks at signed or annotated tags - git tag -a/-s) and
 	# LOCALVERSION= is not specified
-	if test "${LOCALVERSION+set}" != "set"; then
+	if test "${CONFIG_LOCALVERSION+set}" != "set"; then
 		scm=$(scm_version --short)
 		res="$res${scm:++}"
 	fi
+fi
 fi
 
 echo "$res"

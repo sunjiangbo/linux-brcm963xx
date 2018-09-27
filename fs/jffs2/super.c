@@ -373,12 +373,39 @@ static int __init init_jffs2_fs(void)
 	BUILD_BUG_ON(sizeof(struct jffs2_raw_inode) != 68);
 	BUILD_BUG_ON(sizeof(struct jffs2_raw_summary) != 32);
 
-	pr_info("version 2.2."
+	pr_info("version 2.2"
 #ifdef CONFIG_JFFS2_FS_WRITEBUFFER
 	       " (NAND)"
 #endif
 #ifdef CONFIG_JFFS2_SUMMARY
-	       " (SUMMARY) "
+	       " (SUMMARY)"
+#endif
+#ifdef CONFIG_JFFS2_ZLIB
+	       " (ZLIB)"
+#endif
+#ifdef CONFIG_JFFS2_LZO
+	       " (LZO)"
+#endif
+#ifdef CONFIG_JFFS2_LZMA
+	       " (LZMA)"
+#endif
+#ifdef CONFIG_JFFS2_RTIME
+	       " (RTIME)"
+#endif
+#ifdef CONFIG_JFFS2_RUBIN
+	       " (RUBIN)"
+#endif
+#ifdef  CONFIG_JFFS2_CMODE_NONE
+	       " (CMODE_NONE)"
+#endif
+#ifdef CONFIG_JFFS2_CMODE_PRIORITY
+	       " (CMODE_PRIORITY)"
+#endif
+#ifdef CONFIG_JFFS2_CMODE_SIZE
+	       " (CMODE_SIZE)"
+#endif
+#ifdef CONFIG_JFFS2_CMODE_FAVOURLZO
+	       " (CMODE_FAVOURLZO)"
 #endif
 	       " © 2001-2006 Red Hat, Inc.\n");
 

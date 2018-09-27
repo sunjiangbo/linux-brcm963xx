@@ -60,6 +60,8 @@ source "drivers/pinctrl/Kconfig"
 
 source "drivers/gpio/Kconfig"
 
+source "drivers/pwm/Kconfig"
+
 source "drivers/w1/Kconfig"
 
 source "drivers/power/Kconfig"
@@ -95,6 +97,10 @@ source "drivers/mmc/Kconfig"
 source "drivers/memstick/Kconfig"
 
 source "drivers/leds/Kconfig"
+
+if BCM_KF_ANDROID
+source "drivers/switch/Kconfig"
+endif
 
 source "drivers/accessibility/Kconfig"
 

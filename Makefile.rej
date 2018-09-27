@@ -1,0 +1,114 @@
+--- Makefile	2012-09-15 06:18:55.000000000 +0800
++++ Makefile	2016-02-22 00:57:30.000000000 +0800
+@@ -608,13 +660,111 @@
+ # command line.
+ # This allow a user to issue only 'make' to build a kernel including modules
+ # Defaults to vmlinux, but the arch makefile usually adds further targets
++
++ifdef BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
++all: bcm_vmlinux
++else  # BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
+ all: vmlinux
++endif # BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
+ 
+ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
+ KBUILD_CFLAGS	+= -Os
+ else
++ifdef BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
++ifndef BRCM_KERNEL_DEBUG
++BRCM_KERNEL_DEBUG := 0
++endif 
++ifeq ($(shell let "X = $(BRCM_KERNEL_DEBUG) & 1"; echo $$X),1)
++$(info "Setting optimization to debug levels (-O1, -g)")
++KBUILD_CFLAGS	+= -O1 -g 
++KBUILD_AFLAGS	+= -gdwarf-2
++KBUILD_CFLAGS += -Wno-uninitialized
++
++# Kernel does not compile with -O0. Set optimizatin to -O1 and disable all other optimizations
++# except for the ones which result in errors when compiling kernel
++KBUILD_CFLAGS += -fno-branch-count-reg
++KBUILD_CFLAGS += -fno-combine-stack-adjustments 
++KBUILD_CFLAGS += -fno-common
++KBUILD_CFLAGS += -fno-compare-elim
++KBUILD_CFLAGS += -fno-cprop-registers 
++KBUILD_CFLAGS += -fno-dce 
++KBUILD_CFLAGS += -fno-defer-pop 
++KBUILD_CFLAGS += -fno-delayed-branch
++KBUILD_CFLAGS += -fno-delete-null-pointer-checks 
++KBUILD_CFLAGS += -fno-dse 
++KBUILD_CFLAGS += -fno-early-inlining
++#KBUILD_CFLAGS += -fno-forward-propagate 
++KBUILD_CFLAGS += -fno-gcse-lm 
++KBUILD_CFLAGS += -fno-guess-branch-probability
++KBUILD_CFLAGS += -fno-if-conversion 
++KBUILD_CFLAGS += -fno-if-conversion2
++KBUILD_CFLAGS += -fno-inline-functions-called-once 
++KBUILD_CFLAGS += -fno-ipa-profile 
++KBUILD_CFLAGS += -fno-ipa-pure-const
++KBUILD_CFLAGS += -fno-ipa-reference 
++KBUILD_CFLAGS += -fno-ivopts
++KBUILD_CFLAGS += -fno-jump-tables 
++KBUILD_CFLAGS += -fno-math-errno
++KBUILD_CFLAGS += -fno-merge-constants 
++KBUILD_CFLAGS += -fno-move-loop-invariants
++KBUILD_CFLAGS += -fno-omit-frame-pointer
++KBUILD_CFLAGS += -fno-peephole
++KBUILD_CFLAGS += -fno-prefetch-loop-arrays
++KBUILD_CFLAGS += -fno-rename-registers
++#KBUILD_CFLAGS += -fno-rtti
++KBUILD_CFLAGS += -fno-sched-critical-path-heuristic 
++KBUILD_CFLAGS += -fno-sched-dep-count-heuristic 
++KBUILD_CFLAGS += -fno-sched-group-heuristic 
++KBUILD_CFLAGS += -fno-sched-interblock
++KBUILD_CFLAGS += -fno-sched-last-insn-heuristic 
++KBUILD_CFLAGS += -fno-sched-rank-heuristic
++KBUILD_CFLAGS += -fno-sched-spec
++KBUILD_CFLAGS += -fno-sched-spec-insn-heuristic 
++KBUILD_CFLAGS += -fno-sched-stalled-insns-dep 
++KBUILD_CFLAGS += -fno-short-enums 
++KBUILD_CFLAGS += -fno-signed-zeros
++KBUILD_CFLAGS += -fno-split-ivs-in-unroller 
++KBUILD_CFLAGS += -fno-split-wide-types
++#KBUILD_CFLAGS += -fno-no-threadsafe-statics 
++KBUILD_CFLAGS += -fno-toplevel-reorder
++KBUILD_CFLAGS += -fno-trapping-math 
++KBUILD_CFLAGS += -fno-tree-bit-ccp
++#KBUILD_CFLAGS += -fno-tree-ccp
++KBUILD_CFLAGS += -fno-tree-ch 
++KBUILD_CFLAGS += -fno-tree-copy-prop
++KBUILD_CFLAGS += -fno-tree-copyrename 
++KBUILD_CFLAGS += -fno-tree-cselim 
++KBUILD_CFLAGS += -fno-tree-dce
++KBUILD_CFLAGS += -fno-tree-dominator-opts 
++KBUILD_CFLAGS += -fno-tree-dse
++KBUILD_CFLAGS += -fno-tree-forwprop 
++KBUILD_CFLAGS += -fno-tree-fre
++KBUILD_CFLAGS += -fno-tree-loop-if-convert
++KBUILD_CFLAGS += -fno-tree-loop-im
++KBUILD_CFLAGS += -fno-tree-loop-ivcanon 
++KBUILD_CFLAGS += -fno-tree-loop-optimize
++KBUILD_CFLAGS += -fno-tree-phiprop
++KBUILD_CFLAGS += -fno-tree-pta
++KBUILD_CFLAGS += -fno-tree-reassoc
++KBUILD_CFLAGS += -fno-tree-scev-cprop 
++KBUILD_CFLAGS += -fno-tree-sink 
++KBUILD_CFLAGS += -fno-tree-slp-vectorize
++KBUILD_CFLAGS += -fno-tree-sra
++KBUILD_CFLAGS += -fno-tree-ter
++KBUILD_CFLAGS += -fno-tree-vect-loop-version
++KBUILD_CFLAGS += -fno-unit-at-a-time
++KBUILD_CFLAGS += -fno-var-tracking
++KBUILD_CFLAGS += -fno-var-tracking-assignments
++KBUILD_CFLAGS += -fno-web 
++
++CONFIG_FRAME_WARN = 0
++else
+ KBUILD_CFLAGS	+= -O2
+ endif
++else # BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
++KBUILD_CFLAGS	+= -O2
++endif # BCM_KF #defined(CONFIG_BCM_KF_MISC_MAKEFILE)
++endif
+ 
+ include $(srctree)/arch/$(SRCARCH)/Makefile
+ 

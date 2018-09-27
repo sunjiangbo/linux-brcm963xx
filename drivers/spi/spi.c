@@ -530,7 +530,7 @@ static void spi_pump_messages(struct kthread_work *work)
 	/* Lock queue and check for queue work */
 	spin_lock_irqsave(&master->queue_lock, flags);
 	if (list_empty(&master->queue) || !master->running) {
-		if (master->busy) {
+		if (master->busy && master->unprepare_transfer_hardware) {
 			ret = master->unprepare_transfer_hardware(master);
 			if (ret) {
 				spin_unlock_irqrestore(&master->queue_lock, flags);
@@ -560,7 +560,7 @@ static void spi_pump_messages(struct kthread_work *work)
 		master->busy = true;
 	spin_unlock_irqrestore(&master->queue_lock, flags);
 
-	if (!was_busy) {
+	if (!was_busy && master->prepare_transfer_hardware) {
 		ret = master->prepare_transfer_hardware(master);
 		if (ret) {
 			dev_err(&master->dev,
@@ -1154,6 +1154,24 @@ static int __spi_async(struct spi_device *spi, struct spi_message *message)
  * which are wrappers around this core asynchronous primitive.)
  */
 int spi_async(struct spi_device *spi, struct spi_message *message)
+#if defined(CONFIG_BCM_KF_SPI)
+{
+	struct spi_master *master = spi->master;
+	unsigned long flags;
+
+	/* holding the spinlock and disabling irqs for the duration of the transfer is problematic
+	   the controller driver manages the locking so call __spi_async without the lock */
+
+	spin_lock_irqsave(&master->bus_lock_spinlock, flags);
+	if (master->bus_lock_flag){
+		spin_unlock_irqrestore(&master->bus_lock_spinlock, flags);
+		return -EBUSY;
+        }
+	spin_unlock_irqrestore(&master->bus_lock_spinlock, flags);
+
+	return __spi_async(spi, message);
+}
+#else
 {
 	struct spi_master *master = spi->master;
 	int ret;
@@ -1170,6 +1188,7 @@ int spi_async(struct spi_device *spi, struct spi_message *message)
 
 	return ret;
 }
+#endif
 EXPORT_SYMBOL_GPL(spi_async);
 
 /**

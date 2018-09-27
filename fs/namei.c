@@ -328,6 +328,36 @@ static inline int do_inode_permission(struct inode *inode, int mask)
 }
 
 /**
+ * inode_only_permission  -  check access rights to a given inode only
+ * @inode:	inode to check permissions on
+ * @mask:	right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC, ...)
+ *
+ * Uses to check read/write/execute permissions on an inode directly, we do
+ * not check filesystem permissions.
+ */
+int inode_only_permission(struct inode *inode, int mask)
+{
+	int retval;
+
+	/*
+	 * Nobody gets write access to an immutable file.
+	 */
+	if (unlikely(mask & MAY_WRITE) && IS_IMMUTABLE(inode))
+		return -EACCES;
+
+	retval = do_inode_permission(inode, mask);
+	if (retval)
+		return retval;
+
+	retval = devcgroup_inode_permission(inode, mask);
+	if (retval)
+		return retval;
+
+	return security_inode_permission(inode, mask);
+}
+EXPORT_SYMBOL(inode_only_permission);
+
+/**
  * inode_permission  -  check for access rights to a given inode
  * @inode:	inode to check permission on
  * @mask:	right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC, ...)
@@ -341,8 +371,6 @@ static inline int do_inode_permission(struct inode *inode, int mask)
  */
 int inode_permission(struct inode *inode, int mask)
 {
-	int retval;
-
 	if (unlikely(mask & MAY_WRITE)) {
 		umode_t mode = inode->i_mode;
 
@@ -352,23 +380,9 @@ int inode_permission(struct inode *inode, int mask)
 		if (IS_RDONLY(inode) &&
 		    (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
 			return -EROFS;
-
-		/*
-		 * Nobody gets write access to an immutable file.
-		 */
-		if (IS_IMMUTABLE(inode))
-			return -EACCES;
 	}
 
-	retval = do_inode_permission(inode, mask);
-	if (retval)
-		return retval;
-
-	retval = devcgroup_inode_permission(inode, mask);
-	if (retval)
-		return retval;
-
-	return security_inode_permission(inode, mask);
+	return inode_only_permission(inode, mask);
 }
 
 /**
@@ -396,6 +410,28 @@ void path_put(struct path *path)
 	mntput(path->mnt);
 }
 EXPORT_SYMBOL(path_put);
+
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+/**
+ * path_connected - Verify that a path->dentry is below path->mnt.mnt_root
+ * @path: nameidate to verify
+ *
+ * Rename can sometimes move a file or directory outside of a bind
+ * mount, path_connected allows those cases to be detected.
+ */
+static bool path_connected(const struct path *path)
+{
+       struct vfsmount *mnt = path->mnt;
+
+       /* Only bind mounts can have disconnected paths */
+       if (mnt->mnt_root == mnt->mnt_sb->s_root)
+               return true;
+
+       return is_subdir(path->dentry, mnt->mnt_root);
+}
+#endif
+
+
 
 /*
  * Path walking has 2 modes, rcu-walk and ref-walk (see
@@ -945,6 +981,10 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 				goto failed;
 			nd->path.dentry = parent;
 			nd->seq = seq;
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+			if (unlikely(!path_connected(&nd->path)))
+				goto failed;
+#endif
 			break;
 		}
 		if (!follow_up_rcu(&nd->path))
@@ -1029,7 +1069,11 @@ static void follow_mount(struct path *path)
 	}
 }
 
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+static int follow_dotdot(struct nameidata *nd)
+#else
 static void follow_dotdot(struct nameidata *nd)
+#endif
 {
 	set_root(nd);
 
@@ -1044,6 +1088,12 @@ static void follow_dotdot(struct nameidata *nd)
 			/* rare case of legitimate dget_parent()... */
 			nd->path.dentry = dget_parent(nd->path.dentry);
 			dput(old);
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+			if (unlikely(!path_connected(&nd->path))) {
+				path_put(&nd->path);
+				return -ENOENT;
+			}
+#endif
 			break;
 		}
 		if (!follow_up(&nd->path))
@@ -1051,6 +1101,9 @@ static void follow_dotdot(struct nameidata *nd)
 	}
 	follow_mount(&nd->path);
 	nd->inode = nd->path.dentry->d_inode;
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+	return 0;
+#endif
 }
 
 /*
@@ -1251,7 +1304,11 @@ static inline int handle_dots(struct nameidata *nd, int type)
 			if (follow_dotdot_rcu(nd))
 				return -ECHILD;
 		} else
+#if defined(CONFIG_BCM_KF_MISC_3_4_CVE_PORTS)
+			return follow_dotdot(nd);
+#else
 			follow_dotdot(nd);
+#endif
 	}
 	return 0;
 }

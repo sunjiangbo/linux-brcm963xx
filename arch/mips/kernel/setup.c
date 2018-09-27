@@ -22,6 +22,7 @@
 #include <linux/console.h>
 #include <linux/pfn.h>
 #include <linux/debugfs.h>
+#include <linux/kexec.h>
 
 #include <asm/addrspace.h>
 #include <asm/bootinfo.h>
@@ -70,7 +71,16 @@ static char __initdata builtin_cmdline[COMMAND_LINE_SIZE] = CONFIG_CMDLINE;
  * mips_io_port_base is the begin of the address space to which x86 style
  * I/O ports are mapped.
  */
+#if !defined(CONFIG_BCM_KF_MIPS_BCM9685XX) && defined(CONFIG_BCM_KF_MIPS_IOPORT_BASE)
+/* mips_io_port_base is normally set using set_io_port_base.  The
+   only reason we would need it here is to get around a race condition.
+   I don't know what the race condition is, but some ivestigation can be done
+   later to determine if we can remove it.  For now, leave it in so it
+   doesn't hinder the development. */
+const unsigned long mips_io_port_base = KSEG1;
+#else
 const unsigned long mips_io_port_base = -1;
+#endif
 EXPORT_SYMBOL(mips_io_port_base);
 
 static struct resource code_resource = { .name = "Kernel code", };
@@ -522,11 +532,61 @@ static void __init arch_mem_init(char **cmdline_p)
 	}
 
 	bootmem_init();
+#ifdef CONFIG_KEXEC
+	if (crashk_res.start != crashk_res.end)
+		reserve_bootmem(crashk_res.start,
+			crashk_res.end - crashk_res.start + 1,
+			BOOTMEM_DEFAULT);
+#endif
 	device_tree_init();
 	sparse_init();
 	plat_swiotlb_setup();
 	paging_init();
 }
+
+#ifdef CONFIG_KEXEC
+static inline unsigned long long get_total_mem(void)
+{
+	unsigned long long total;
+	total = max_pfn - min_low_pfn;
+	return total << PAGE_SHIFT;
+}
+
+static void __init mips_parse_crashkernel(void)
+{
+	unsigned long long total_mem;
+	unsigned long long crash_size, crash_base;
+	int ret;
+
+	total_mem = get_total_mem();
+	ret = parse_crashkernel(boot_command_line, total_mem,
+			&crash_size, &crash_base);
+	if (ret != 0 || crash_size <= 0)
+		return;
+
+	crashk_res.start = crash_base;
+	crashk_res.end   = crash_base + crash_size - 1;
+}
+static void __init request_crashkernel(struct resource *res)
+{
+	int ret;
+
+	ret = request_resource(res, &crashk_res);
+	if (!ret)
+		printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+			"for crashkernel\n",
+			(unsigned long)((crashk_res.end -
+				crashk_res.start + 1) >> 20),
+			(unsigned long)(crashk_res.start  >> 20));
+}
+#else
+static void __init mips_parse_crashkernel(void)
+{
+}
+static void __init request_crashkernel(struct resource *res)
+{
+}
+#endif
 
 static void __init resource_init(void)
 {
@@ -543,6 +603,8 @@ static void __init resource_init(void)
 	/*
 	 * Request address space for all standard RAM.
 	 */
+	mips_parse_crashkernel();
+
 	for (i = 0; i < boot_mem_map.nr_map; i++) {
 		struct resource *res;
 		unsigned long start, end;
@@ -579,6 +641,7 @@ static void __init resource_init(void)
 		 */
 		request_resource(res, &code_resource);
 		request_resource(res, &data_resource);
+		request_crashkernel(res);
 	}
 }
 

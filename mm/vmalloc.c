@@ -782,7 +782,7 @@ static struct vmap_block *new_vmap_block(gfp_t gfp_mask)
 	struct vmap_block *vb;
 	struct vmap_area *va;
 	unsigned long vb_idx;
-	int node, err;
+	int node, err, cpu;
 
 	node = numa_node_id();
 
@@ -821,12 +821,13 @@ static struct vmap_block *new_vmap_block(gfp_t gfp_mask)
 	BUG_ON(err);
 	radix_tree_preload_end();
 
-	vbq = &get_cpu_var(vmap_block_queue);
+	cpu = get_cpu_light();
+	vbq = &__get_cpu_var(vmap_block_queue);
 	vb->vbq = vbq;
 	spin_lock(&vbq->lock);
 	list_add_rcu(&vb->free_list, &vbq->free);
 	spin_unlock(&vbq->lock);
-	put_cpu_var(vmap_block_queue);
+	put_cpu_light();
 
 	return vb;
 }
@@ -900,7 +901,7 @@ static void *vb_alloc(unsigned long size, gfp_t gfp_mask)
 	struct vmap_block *vb;
 	unsigned long addr = 0;
 	unsigned int order;
-	int purge = 0;
+	int purge = 0, cpu;
 
 	BUG_ON(size & ~PAGE_MASK);
 	BUG_ON(size > PAGE_SIZE*VMAP_MAX_ALLOC);
@@ -908,7 +909,8 @@ static void *vb_alloc(unsigned long size, gfp_t gfp_mask)
 
 again:
 	rcu_read_lock();
-	vbq = &get_cpu_var(vmap_block_queue);
+	cpu = get_cpu_light();
+	vbq = &__get_cpu_var(vmap_block_queue);
 	list_for_each_entry_rcu(vb, &vbq->free, free_list) {
 		int i;
 
@@ -945,7 +947,7 @@ next:
 	if (purge)
 		purge_fragmented_blocks_thiscpu();
 
-	put_cpu_var(vmap_block_queue);
+	put_cpu_light();
 	rcu_read_unlock();
 
 	if (!addr) {
@@ -1258,6 +1260,7 @@ void unmap_kernel_range(unsigned long addr, unsigned long size)
 	vunmap_page_range(addr, end);
 	flush_tlb_kernel_range(addr, end);
 }
+EXPORT_SYMBOL_GPL(unmap_kernel_range);
 
 int map_vm_area(struct vm_struct *area, pgprot_t prot, struct page ***pages)
 {
@@ -1395,6 +1398,7 @@ struct vm_struct *get_vm_area(unsigned long size, unsigned long flags)
 	return __get_vm_area_node(size, 1, flags, VMALLOC_START, VMALLOC_END,
 				-1, GFP_KERNEL, __builtin_return_address(0));
 }
+EXPORT_SYMBOL_GPL(get_vm_area);
 
 struct vm_struct *get_vm_area_caller(unsigned long size, unsigned long flags,
 				void *caller)

@@ -1,0 +1,15 @@
+--- net/bridge/br_forward.c	2012-09-15 06:18:55.000000000 +0800
++++ net/bridge/br_forward.c	2016-02-22 00:57:31.000000000 +0800
+@@ -298,7 +486,12 @@
+ /* called with rcu_read_lock */
+ void br_forward(const struct net_bridge_port *to, struct sk_buff *skb, struct sk_buff *skb0)
+ {
++#if defined(CONFIG_BCM_KF_FBOND) && (defined(CONFIG_BCM_FBOND) || defined(CONFIG_BCM_FBOND_MODULE))
++	to = br_fb_process(to, skb);
++	if ( to ) {
++#else
+ 	if (should_deliver(to, skb)) {
++#endif   
+ 		if (skb0)
+ 			deliver_clone(to, skb, __br_forward);
+ 		else

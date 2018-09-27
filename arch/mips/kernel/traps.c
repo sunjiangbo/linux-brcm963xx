@@ -125,25 +125,67 @@ static int __init set_raw_show_trace(char *str)
 __setup("raw_show_trace", set_raw_show_trace);
 #endif
 
+#if defined(CONFIG_BCM_KF_FAP) && (defined(CONFIG_BCM_FAP) || defined(CONFIG_BCM_FAP_MODULE))
+
+long * traps_fap0DbgVals = NULL;
+long * traps_fap1DbgVals = NULL;
+EXPORT_SYMBOL(traps_fap0DbgVals);
+EXPORT_SYMBOL(traps_fap1DbgVals);
+
+static void dumpFapInfo(void)
+{
+    int i;
+    printk("FAP0: ");
+    if (traps_fap0DbgVals != NULL)
+        for (i = 0; i < 10; i++)
+        {
+            printk("[%d]:%08lx ", i, traps_fap0DbgVals[i]);
+        }
+    printk("\n");
+    
+    printk("FAP1: ");
+    if (traps_fap1DbgVals != NULL)
+        for (i = 0; i < 10; i++)
+        {
+            printk("[%d]:%08lx ", i, traps_fap1DbgVals[i]);
+        }
+    printk("\n");
+}
+#endif
+
 static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
 {
 	unsigned long sp = regs->regs[29];
 	unsigned long ra = regs->regs[31];
 	unsigned long pc = regs->cp0_epc;
 
-	if (!task)
-		task = current;
-
 	if (raw_show_trace || !__kernel_text_address(pc)) {
 		show_raw_backtrace(sp);
 		return;
 	}
+
+#if defined(CONFIG_BCM_KF_SHOW_RAW_BACKTRACE)&&defined(CONFIG_KALLSYMS)
+	/*
+	 * Always print the raw backtrace, this will be helpful
+	 * if unwind_stack fails before giving a proper decoded backtrace
+	 */ 
+	show_raw_backtrace(sp);
+	printk("\n");
+#endif
+
 	printk("Call Trace:\n");
 	do {
 		print_ip_sym(pc);
 		pc = unwind_stack(task, &sp, pc, &ra);
 	} while (pc);
 	printk("\n");
+    
+#if defined(CONFIG_BCM_KF_FAP) && (defined(CONFIG_BCM_FAP) || defined(CONFIG_BCM_FAP_MODULE))
+        printk("FAP Information:\n");
+        dumpFapInfo();
+        printk("\n");
+#endif
+    
 }
 
 /*
@@ -210,6 +252,11 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 void dump_stack(void)
 {
 	struct pt_regs regs;
+
+#if (defined(CONFIG_BCM_KF_BOUNCE) && defined(CONFIG_BRCM_BOUNCE))
+	extern void bounce_panic(void);
+	bounce_panic();
+#endif
 
 	prepare_frametrace(&regs);
 	show_backtrace(current, &regs);
@@ -1020,24 +1067,6 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 
 		return;
 
-	case 3:
-		/*
-		 * Old (MIPS I and MIPS II) processors will set this code
-		 * for COP1X opcode instructions that replaced the original
-		 * COP3 space.  We don't limit COP1 space instructions in
-		 * the emulator according to the CPU ISA, so we want to
-		 * treat COP1X instructions consistently regardless of which
-		 * code the CPU chose.  Therefore we redirect this trap to
-		 * the FP emulator too.
-		 *
-		 * Then some newer FPU-less processors use this code
-		 * erroneously too, so they are covered by this choice
-		 * as well.
-		 */
-		if (raw_cpu_has_fpu)
-			break;
-		/* Fall through.  */
-
 	case 1:
 		if (used_math())	/* Using the FPU again.  */
 			own_fpu(1);
@@ -1061,6 +1090,9 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 	case 2:
 		raw_notifier_call_chain(&cu2_chain, CU2_EXCEPTION, regs);
 		return;
+
+	case 3:
+		break;
 	}
 
 	force_sig(SIGILL, current);
@@ -1516,7 +1548,6 @@ extern void flush_tlb_handlers(void);
  * Timer interrupt
  */
 int cp0_compare_irq;
-EXPORT_SYMBOL_GPL(cp0_compare_irq);
 int cp0_compare_irq_shift;
 
 /*
